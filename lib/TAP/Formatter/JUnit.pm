@@ -7,7 +7,7 @@ use TAP::Formatter::JUnit::Session;
 use base qw(TAP::Formatter::Console);
 use Class::Field qw(field);
 
-our $VERSION = '0.02';
+our $VERSION = '0.04';
 
 field 'testsuites'  => [];
 
@@ -47,7 +47,12 @@ sub summary {
 sub xml {
     my $self = shift;
     unless ($self->{xml}) {
-        $self->{xml} = XML::Generator->new(':pretty', ':std', 'encoding'=>'UTF-8');
+        $self->{xml} = XML::Generator->new(
+            ':pretty', 
+            ':std', 
+            encoding =>'UTF-8',
+            escape   => 'always,high-bit,even-entities',
+        );
     }
     return $self->{xml};
 }
@@ -152,6 +157,11 @@ Graham TerMarsch <cpan@howlingfrog.com>
 
 Many thanks to Andy Armstrong et al. for the B<fabulous> set of tests in
 C<Test::Harness>; they became the basis for the unit tests here.
+
+Other thanks go out to those that have provided feedback, comments, or patches:
+
+  Mark Aufflick
+  Joe McMahon
 
 =head1 COPYRIGHT
 

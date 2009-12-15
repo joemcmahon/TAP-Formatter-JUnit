@@ -23,8 +23,15 @@ field 'system_err'  => '';
 sub result {
     my ($self, $result) = @_;
 
-    # add the raw output
-    $self->{system_out} .= $result->raw() . "\n";
+    # add the (cleaned) raw output. Some test suites (I'm looking at you,
+    # JSON-Any) output control characters and other weirdness in their TAP.
+    my $cleaned_result = _squeaky_clean($result->raw());
+    if ($cleaned_result !~ /^(not ok|ok)/) {
+        # Put the newlines back.
+        $cleaned_result =~ s/\^J/\n/g;
+    }
+    $self->{system_out} .= "$cleaned_result\n";
+    
 
     # skip "plan"; no equivalent in JUnit
     return if ($result->is_plan);
@@ -206,10 +213,10 @@ sub _flush_item {
             );
 
         # slurp in all the content up to the next test
-        my @content = $result->as_string();
+        my @content = map { _squeaky_clean($_) } $result->as_string();
         while (@{$queue}) {
             my $followup = shift @{$queue};
-            push @content, $followup->as_string();
+            push @content, _squeaky_clean($followup->as_string());
         }
 
         # check for bogosity
@@ -225,20 +232,21 @@ sub _flush_item {
             $bogosity = {
                 level   => 'error',
                 type    => 'UnplannedTest',
-                message => $result->as_string(),
+                message => _squeaky_clean($result->as_string()),
             };
         }
         elsif (not $result->is_ok()) {
             $bogosity = {
                 level   => 'failure',
                 type    => 'TestFailed',
-                message => $result->as_string(),
+                message => _squeaky_clean($result->as_string()),
             };
         }
 
         # create a failure/error element if the test was bogus
         my $failure;
         if ($bogosity) {
+            @content = map { _squeaky_clean($_) } @content;
             my $cdata = $self->_cdata( join "\n", @content );
             my $level = $bogosity->{level};
             $failure  = $xml->$level( {
@@ -288,17 +296,24 @@ sub _clean_to_java_class_name {
 # Cleans up the description of the given test.
 sub _clean_test_description {
     my $test = shift;
-    my $desc = $test->description();
-    $desc =~ s/\000//g;     # NULLs aren't valid in test description
-    return $desc;
+    return _squeaky_clean($test->description());
 }
 
 ###############################################################################
 # Creates a CDATA block for the given data.
+# Expects the data to have already been _squeaky_clean().
 sub _cdata {
     my ($self, $data) = @_;
-    $data =~ s/\000//g;     # NULLs aren't valid in a CDATA section
     return $self->xml->xmlcdata($data);
+}
+
+# Clean a string to the point that JUnit can't possibly have a problem with it.
+sub _squeaky_clean {
+    my($string, $arg_ref) = @_;
+    use bytes;
+    $string =~ s/([\x00-\x1f])/"^".chr(ord($1)+64)/ge;
+    $string =~ s/([\x7f-\xff])/'[\\x'.sprintf('%02x',ord($1)).']'/ge;
+    return $string;
 }
 
 1;
