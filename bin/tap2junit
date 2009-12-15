@@ -12,14 +12,15 @@ use File::Slurp qw(slurp);
 
 ###############################################################################
 # Read in our command line options.
-my ($help, $man);
+my ($help, $man, $test_name);
 my $verbose;
 my $suffix = '.xml';
 GetOptions(
-    'suffix=s'  => \$suffix,
-    'verbose'   => \$verbose,
-    'help|?'    => \$help,
-    'man'       => \$man,
+    'suffix=s'     => \$suffix,
+    'verbose'      => \$verbose,
+    'help|?'       => \$help,
+    'man'          => \$man,
+    'junit_name=s' => \$test_name,
 ) || pod2usage(1);
 pod2usage(1) if ($help);
 pod2usage( -exitstatus=>0, -verbose=>2 ) if ($man);
@@ -34,13 +35,25 @@ pod2usage(1) unless (@tap_files);
 foreach my $file (@tap_files) {
     verbose( "converting TAP to JUnit: $file" );
 
+    my $tap;
     # Slurp in the TAP.
-    my $tap = slurp($file);
+    if ( $file eq '-' ) {
+        $tap = join('',<STDIN>);
+    }
+    else {
+        $tap = slurp($file);
+    }
 
     # Open up a FH for where we're going to dump the JUnit
-    my $junit_file = "${file}${suffix}";
-    my $fout = IO::File->new( $junit_file, '>' )
-            || die "can't open '$junit_file' for writing; $!";
+    my $fout;
+    if ($file ne '-') {
+        my $junit_file = "${file}${suffix}";
+        $fout = IO::File->new( $junit_file, '>' )
+                || die "can't open '$junit_file' for writing; $!";
+    }
+    else {
+        open($fout,  ">&STDOUT") or die "Can't dup STDOUT: $!\n";
+    }
 
     # Convert the TAP to JUnit
     eval {
@@ -53,6 +66,8 @@ foreach my $file (@tap_files) {
         # Parse all of the TAP in this file.
         $aggregator->start();
 
+        # Use the --junit_name if we're reading from STDIN.
+        $file = $test_name if $file eq '-' and defined $test_name;
         my $session = $formatter->open_test($file, $parser);
         while (my $result = $parser->next()) {
             $session->result($result);
@@ -94,6 +109,8 @@ tap2junit - Converts TAP output to JUnit
     --verbose           Display verbose status during conversion
     --help/-?           Display brief help message
     --man               Display full documentation
+    --junit_name <name> Name to be inserted into the JUnit XML as the
+                        test name when reading from STDIN (see below)
 
 =head1 DESCRIPTION
 
@@ -102,6 +119,11 @@ C<tap2junit> converts TAP output to JUnit.
 Give it a list of files containing TAP results and it will create a series of
 F<????.junit.xml> output files containing the JUnit representations of that TAP
 contained in the files.
+
+If you specify '-' as a filename, it will read from STDIN and write to STDOUT.
+The '--junit_name' option allows you to assign a test name that will be
+inserted into the output JUnit XML; if you don't specify this when using '-'
+as the filename, tap2junit will go ahead and use '-' as the name of the test.
 
 =head1 OPTIONS
 
