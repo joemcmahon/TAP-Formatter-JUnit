@@ -1,5 +1,12 @@
 Revision history for Perl extension TAP::Formatter::JUnit.
 
+0.05	Mon Dec 21 11:58:17 PST 2009
+    - Add support for ALLOW_PASSING_TODOS environment variable
+      Some CPAN modules have passing TODOS that are OK; we don't
+      want these passing TODOS to be marked as errors. The 
+      ALLOW_PASSING_TODOS environment variable (if set to a true value)
+      will mark passing TODOs in a test suite as succeeding tests.
+
 0.04    Tue Dec 15 13:06:36 PST 2009
     - Hudson is insanely picky about "bad" (i.e., non-ASCII) characters in
       its XML input. Added code to defang most of these.

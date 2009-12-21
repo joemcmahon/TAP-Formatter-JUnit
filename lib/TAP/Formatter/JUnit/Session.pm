@@ -101,7 +101,7 @@ sub close_test {
     my $planned  = $parser->tests_planned() || 0;
     my $bad_exit = $parser->exit() ? 1 : 0;
 
-    my $errors   = $parser->todo_passed();
+    my $errors = $parser->todo_passed()  unless $ENV{ALLOW_PASSING_TODOS};;
     $errors += abs($testsrun - $planned) if ($planned);
     $errors += ($noplan || $bad_exit);
 
@@ -221,7 +221,7 @@ sub _flush_item {
 
         # check for bogosity
         my $bogosity;
-        if ($result->todo_passed()) {
+        if ($result->todo_passed() && ! $ENV{ALLOW_PASSING_TODOS}) {
             $bogosity = {
                 level   => 'error',
                 type    => 'TodoTestSucceeded',
