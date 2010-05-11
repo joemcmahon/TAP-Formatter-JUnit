@@ -7,7 +7,7 @@ use TAP::Formatter::JUnit::Session;
 use base qw(TAP::Formatter::Console);
 use Class::Field qw(field);
 
-our $VERSION = '0.05';
+our $VERSION = '0.07';
 
 field 'testsuites'  => [];
 
@@ -24,6 +24,7 @@ sub open_test {
         name        => $test,
         formatter   => $self,
         parser      => $parser,
+        passing_todo_ok => $ENV{ALLOW_PASSING_TODOS} ? 1 : 0,
     } );
     return $session;
 }
@@ -48,10 +49,10 @@ sub xml {
     my $self = shift;
     unless ($self->{xml}) {
         $self->{xml} = XML::Generator->new(
-            ':pretty', 
-            ':std', 
-            encoding =>'UTF-8',
-            escape   => 'always,high-bit,even-entities',
+            ':pretty',
+            ':std',
+            'escape'   => 'always,high-bit,even-entities',
+            'encoding' => 'UTF-8',
         );
     }
     return $self->{xml};
@@ -64,7 +65,12 @@ sub xml {
 sub xml_unescape {
     my $self = shift;
     unless ($self->{xml_unescape}) {
-        $self->{xml_unescape} = XML::Generator->new(':pretty', ':std', 'escape'=>'unescaped', 'encoding'=>'UTF-8');
+        $self->{xml_unescape} = XML::Generator->new(
+            ':pretty',
+            ':std',
+            'escape'   => 'unescaped',
+            'encoding' => 'UTF-8'
+        );
     }
     return $self->{xml_unescape};
 }
@@ -117,6 +123,11 @@ IMHO that's ok as you've now got the data in two parsable formats).
 Timing information is included in the JUnit XML, I<if> you specified C<--timer>
 when you ran F<prove>.
 
+In standard use, "passing TODOs" are treated as failure conditions (and are
+reported as such in the generated JUnit).  If you wish to treat these as a
+"pass" and not a "fail" condition, setting C<ALLOW_PASSING_TODOS> in your
+environment will turn these into pass conditions.
+
 The JUnit output generated is partial to being grokked by Hudson
 (L<http://hudson.dev.java.net/>).  That's the build tool I'm using at the
 moment and needed to be able to generate JUnit output for.
@@ -162,6 +173,8 @@ Other thanks go out to those that have provided feedback, comments, or patches:
 
   Mark Aufflick
   Joe McMahon
+  Michael Nachbaur
+  Marc Abramowitz
 
 =head1 COPYRIGHT
 

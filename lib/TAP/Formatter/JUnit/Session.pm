@@ -11,6 +11,22 @@ use IO::File;
 field 'testcases'   => [];
 field 'system_out'  => '';
 field 'system_err'  => '';
+field 'passing_todo_ok' => 0;
+
+###############################################################################
+# Subroutine:   _initialize($arg_for)
+###############################################################################
+# Custom initializer, so we can accept a new "passing_todo_ok" argument at
+# instantiation time.
+sub _initialize {
+    my ($self, $arg_for) = @_;
+    $arg_for ||= {};
+
+    my $passing_todo_ok = delete $arg_for->{passing_todo_ok};
+    $self->passing_todo_ok($passing_todo_ok);
+
+    return $self->SUPER::_initialize($arg_for);
+}
 
 ###############################################################################
 # Subroutine:   result($result)
@@ -23,21 +39,11 @@ field 'system_err'  => '';
 sub result {
     my ($self, $result) = @_;
 
-    # add the (cleaned) raw output. Some test suites (I'm looking at you,
-    # JSON-Any) output control characters and other weirdness in their TAP.
-    my $cleaned_result = _squeaky_clean($result->raw());
-    if ($cleaned_result !~ /^(not ok|ok)/) {
-        # Put the newlines back.
-        $cleaned_result =~ s/\^J/\n/g;
-    }
-    $self->{system_out} .= "$cleaned_result\n";
-    
-
-    # skip "plan"; no equivalent in JUnit
-    return if ($result->is_plan);
+    # add the raw output
+    $self->{system_out} .= $result->raw() . "\n";
 
     # when we get the next test process the previous one
-    $self->_flush_queue if ($result->is_test && $self->{queue});
+    $self->_flush_queue if ($result->is_test && $self->{_junit_queue});
 
     # except for a few things we don't want to process as a "test case", add
     # the test result to the queue.
@@ -45,7 +51,13 @@ sub result {
              || ($result->raw() =~ /^# Looks like you planned \d+ tests? but ran \d+/)
              || ($result->raw() =~ /^# Looks like your test died before it could output anything/)
            ) {
-        push @{$self->{queue} ||= []}, $result;
+        push @{$self->{_junit_queue} ||= []}, $result;
+    }
+
+    # track the last time we saw a test/plan, so we can calculate how long it
+    # takes to run individual tests.
+    if ($result->is_test || $result->is_plan) {
+        $self->{_junit_t_last_test} = $self->get_time();
     }
 }
 
@@ -94,14 +106,15 @@ sub close_test {
     #                 may not have a plan issued, but should still be considered
     #                 a single error condition)
     my $testsrun = $parser->tests_run() || 0;
-    my $time     = $self->formatter->{timer} ? $self->_time_taken() : undef;
+    my $time     = $self->formatter->timer ? $self->_time_taken() : undef;
     my $failures = $parser->failed();
 
     my $noplan   = $parser->plan() ? 0 : 1;
     my $planned  = $parser->tests_planned() || 0;
     my $bad_exit = $parser->exit() ? 1 : 0;
 
-    my $errors = $parser->todo_passed()  unless $ENV{ALLOW_PASSING_TODOS};;
+    my $errors   = 0;
+    $errors += $parser->todo_passed() unless $self->passing_todo_ok();
     $errors += abs($testsrun - $planned) if ($planned);
     $errors += ($noplan || $bad_exit);
 
@@ -126,7 +139,7 @@ sub close_test {
 sub dump_junit_xml {
     my ($self, $testsuite) = @_;
     if (my $spool_dir = $ENV{PERL_TEST_HARNESS_DUMP_TAP}) {
-        my $spool = File::Spec->catfile($spool_dir, $self->{name} . '.junit.xml');
+        my $spool = File::Spec->catfile($spool_dir, $self->name() . '.junit.xml');
 
         # clone the testsuite; XML::Generator only lets us auto-vivify the
         # CDATA sections *ONCE*.
@@ -186,10 +199,22 @@ sub _time_taken {
 }
 
 ###############################################################################
+# Calculate the time taken since the last test was seen in the TAP output.
+sub _time_since_last_test {
+    my $self = shift;
+    my $t_st = $self->{_junit_t_last_test} || $self->parser->start_time();
+    my $t_en = $self->get_time();
+    my $diff = $t_en - $t_st;
+    my $ret  = $self->{_junit_t_since_last_test} || 0;
+    $self->{_junit_t_since_last_test} = $diff;
+    return $ret;
+}
+
+###############################################################################
 # Flushes the queue of test results, item by item.
 sub _flush_queue {
     my $self = shift;
-    my $queue = $self->{queue} ||= [];
+    my $queue = $self->{_junit_queue} ||= [];
     $self->_flush_item while @$queue;
 }
 
@@ -200,7 +225,7 @@ sub _flush_queue {
 # context or errors related to that test.
 sub _flush_item {
     my $self = shift;
-    my $queue = $self->{queue};
+    my $queue = $self->{_junit_queue};
 
     # get the result
     my $result = shift @$queue;
@@ -210,18 +235,19 @@ sub _flush_item {
     if ($result->is_test) {
         my %attrs = (
             'name' => _get_testcase_name($result),
+            ($self->formatter->timer ? ('time'=>$self->_time_since_last_test) : ()),
             );
 
         # slurp in all the content up to the next test
-        my @content = map { _squeaky_clean($_) } $result->as_string();
+        my @content = $result->as_string();
         while (@{$queue}) {
             my $followup = shift @{$queue};
-            push @content, _squeaky_clean($followup->as_string());
+            push @content, $followup->as_string();
         }
 
         # check for bogosity
         my $bogosity;
-        if ($result->todo_passed() && ! $ENV{ALLOW_PASSING_TODOS}) {
+        if ($result->todo_passed() && !$self->passing_todo_ok()) {
             $bogosity = {
                 level   => 'error',
                 type    => 'TodoTestSucceeded',
@@ -232,21 +258,20 @@ sub _flush_item {
             $bogosity = {
                 level   => 'error',
                 type    => 'UnplannedTest',
-                message => _squeaky_clean($result->as_string()),
+                message => $result->as_string(),
             };
         }
         elsif (not $result->is_ok()) {
             $bogosity = {
                 level   => 'failure',
                 type    => 'TestFailed',
-                message => _squeaky_clean($result->as_string()),
+                message => $result->as_string(),
             };
         }
 
         # create a failure/error element if the test was bogus
         my $failure;
         if ($bogosity) {
-            @content = map { _squeaky_clean($_) } @content;
             my $cdata = $self->_cdata( join "\n", @content );
             my $level = $bogosity->{level};
             $failure  = $xml->$level( {
@@ -261,6 +286,10 @@ sub _flush_item {
     }
     else {
         # some sort of non-test output; ignore for now.
+        #
+        # we do, however, need to track the time since the last test, so that
+        # timings get calculated properly
+        $self->_time_since_last_test();
     }
 }
 
@@ -296,22 +325,26 @@ sub _clean_to_java_class_name {
 # Cleans up the description of the given test.
 sub _clean_test_description {
     my $test = shift;
-    return _squeaky_clean($test->description());
+    my $desc = $test->description();
+    return _squeaky_clean($desc);
 }
 
 ###############################################################################
-# Creates a CDATA block for the given data.
-# Expects the data to have already been _squeaky_clean().
+# Creates a CDATA block for the given data (which is made squeaky clean first,
+# so that JUnit parsers like Hudson's don't choke).
 sub _cdata {
     my ($self, $data) = @_;
+    $data = _squeaky_clean($data);
     return $self->xml->xmlcdata($data);
 }
 
+###############################################################################
 # Clean a string to the point that JUnit can't possibly have a problem with it.
 sub _squeaky_clean {
-    my($string, $arg_ref) = @_;
-    use bytes;
-    $string =~ s/([\x00-\x1f])/"^".chr(ord($1)+64)/ge;
+    my $string = shift;
+    # control characters (except CR and LF)
+    $string =~ s/([\x00-\x09\x0b\x0c\x0e-\x1f])/"^".chr(ord($1)+64)/ge;
+    # high-byte characters
     $string =~ s/([\x7f-\xff])/'[\\x'.sprintf('%02x',ord($1)).']'/ge;
     return $string;
 }
@@ -330,6 +363,11 @@ C<TAP::Harness>.
 =head1 METHODS
 
 =over
+
+=item B<_initialize($arg_for)>
+
+Over-ridden private initializer, so we can accept a new "passing_todo_ok"
+argument at instantiation time.
 
 =item B<result($result)>
 
