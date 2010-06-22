@@ -2,9 +2,17 @@
 
 use strict;
 use warnings;
-use Test::More tests => 14;
+use Test::More;
+
 use TAP::Harness;
 use IO::Scalar;
+
+if ($ENV{HUDSON_TESTING}) {
+    plan skip_all => 'timing test is fragile under Hudson';
+}
+else {
+    plan tests => 14;
+}
 
 ###############################################################################
 # When timer is disabled, we should have *NO* timer info in the JUnit output.
