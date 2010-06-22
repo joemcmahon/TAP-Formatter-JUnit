@@ -3,7 +3,6 @@ Changes
 lib/TAP/Formatter/JUnit.pm
 lib/TAP/Formatter/JUnit/Session.pm
 MANIFEST
-MANIFEST.bak
 MANIFEST.SKIP
 META.yml
 README
