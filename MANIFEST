@@ -106,3 +106,4 @@ t/tap2junit-filter.t
 t/tap2junit-name.t
 t/tap2junit.t
 t/timer.t
+Build.pl
