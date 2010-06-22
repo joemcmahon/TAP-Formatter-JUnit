@@ -1,5 +1,9 @@
 Revision history for Perl extension TAP::Formatter::JUnit.
 
+0.08	Tue Jun 22 12:34:05 PDT 2010
+    - Added check for HUDSON_TESTING environment var in timer.t; sometimes
+      fails timing test under Hudson.
+
 0.07    Fri Jan 29 23:23 PST 2010
     - Fix RT#53927, "Times reported by T:F:JUnit for individual test cases in
       a .t file are incorrect".  Thanks to Marc Abramowitz.
